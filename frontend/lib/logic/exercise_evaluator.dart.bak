@@ -1,0 +1,735 @@
+import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
+import 'pose_utils.dart';
+
+enum ExerciseState { neutral, initiating, eccentric, bottom, concentric, completed }
+
+class EvaluationResult {
+  final String feedback;
+  final bool isRepCompleted;
+  final double? currentMetric;
+
+  EvaluationResult({this.feedback = "", this.isRepCompleted = false, this.currentMetric});
+}
+
+abstract class ExerciseEvaluator {
+  int repCount = 0;
+  ExerciseState state = ExerciseState.neutral;
+  int frameStabilityCounter = 0;
+  final int requiredFrames = 1; // Instant counting
+  int cooldownFrames = 0;       // Cooldown counter
+
+  EvaluationResult evaluate(Pose pose);
+
+  // Call this at start of evaluate
+  bool checkCooldown() {
+    if (cooldownFrames > 0) {
+      cooldownFrames--;
+      return true;
+    }
+    return false;
+  }
+
+  // Call this when rep is counted
+  void triggerCooldown({int newFrames = 15}) {
+    cooldownFrames = newFrames;
+  }
+
+  void reset() {
+    repCount = 0;
+    state = ExerciseState.neutral;
+    frameStabilityCounter = 0;
+    cooldownFrames = 0;
+  }
+
+  static List<String> getInstructions(String name) {
+    name = name.toLowerCase();
+    
+    // SQUATS
+    if (name.contains("jump squat")) return ["Squat down", "Explode up into a jump", "Land softly", "Repeat"];
+    if (name.contains("pistol")) return ["Stand on one leg", "Extend other leg forward", "Squat down on support leg", "Drive back up"];
+    if (name.contains("bulgarian")) return ["One foot on bench behind", "Lower hips straight down", "Keep front knee stable", "Push back up"];
+    if (name.contains("squat")) return ["Feet shoulder-width apart", "Hips back and down", "Chest up, core tight", "Drive through heels"];
+    
+    // PUSHUPS
+    if (name.contains("diamond")) return ["Hands close, index fingers touching", "Lower chest to hands", "Keep elbows close", "Push back up"];
+    if (name.contains("pike")) return ["Downward dog position", "Lower head to floor", "Push back up", "Focus on shoulders"];
+    if (name.contains("wide")) return ["Hands wider than shoulders", "Lower chest toward floor", "Focus on chest stretch", "Push back up"];
+    if (name.contains("decline")) return ["Feet elevated on bench", "Hands on floor", "Lower chest down", "Push back up"];
+    if (name.contains("archer")) return ["Arms wide", "Lower to one side", "Other arm straight", "Push up & switch"];
+    if (name.contains("pseudo")) return ["Hands near hips", "Lean forward", "Lower and push", "Intense shoulder focus"];
+    if (name.contains("handstand")) return ["Kick up against wall", "Lower head to mat", "Press back up", "Core tight"];
+    if (name.contains("push")) return ["Plank position", "Lower chest to floor", "Body straight", "Push up fully"];
+    
+    // LUNGE
+    if (name.contains("lunge")) return ["Step forward/back", "Back knee near floor", "Front knee 90°", "Keep torso upright"];
+    
+    // PLANKS & STATIC
+    if (name.contains("side plank")) return ["Lie on side", "Lift hips off floor", "Straight line head to feet", "Hold"];
+    if (name.contains("plank jack")) return ["Plank position", "Jump feet wide", "Jump feet together", "Keep hips stable"];
+    if (name.contains("plank")) return ["Forearms on floor", "Body straight", "Squeeze glutes/abs", "Don't sag hips"];
+    if (name.contains("wall sit")) return ["Back flat against wall", "Knees at 90°", "Hold position", "Thighs parallel to floor"];
+    if (name.contains("hollow")) return ["Lie on back", "Lift legs and shoulders", "Lower back pressed to floor", "Hold 'banana' shape"];
+    if (name.contains("l-sit")) return ["Hands on floor/bars", "Lift body", "Extend legs straight", "Hold L-shape"];
+    if (name.contains("superman")) return ["Lie on stomach", "Lift arms and legs", "Squeeze lower back", "Hold and release"];
+    
+    // CARDIO / PLYO
+    if (name.contains("burpee")) return ["Squat down", "Kick feet back to plank", "Pushup (optional)", "Jump feet in & leap up"];
+    if (name.contains("mountain")) return ["Plank position", "Drive knee to chest", "Switch legs quickly", "Keep hips down"];
+    if (name.contains("high knee") || name.contains("run") || name.contains("sprint")) return ["Run in place", "Drive knees hip-high", "Pump arms", "Fast rhythm"];
+    if (name.contains("jack")) return ["Feet together", "Jump feet wide, hands up", "Jump back", "Rhythmic bouncing"];
+    if (name.contains("skater")) return ["Leap to side", "Cross back leg behind", "Swing arms", "Continuous side-to-side"];
+    if (name.contains("butt kick")) return ["Run in place", "Kick heels to glutes", "High frequency", "Stay on toes"];
+    if (name.contains("tuck")) return ["Jump high", "Pull knees to chest", "Land softly", "Reset and repeat"];
+    
+    // CORE
+    if (name.contains("bicycle")) return ["Lie on back", "Elbow to opposite knee", "Extend other leg", "Rotate torso"];
+    if (name.contains("v-up")) return ["Lie flat", "Lift legs and torso", "Touch toes", "Control down"];
+    if (name.contains("leg raise")) return ["Lie on back", "Lift straight legs up", "Lower slowly", "Don't arch back"];
+    if (name.contains("crunch")) return ["Lie on back, knees bent", "Lift shoulders only", "Squeeze abs", "Lower slowly"];
+    
+    // OTHERS
+    if (name.contains("dip")) return ["Hands on edge", "Lower hips down", "Bend elbows 90°", "Push back up"];
+    if (name.contains("calf")) return ["Ball of foot on edge", "Lower heel down", "Raise up on toes", "Squeeze calf"];
+    if (name.contains("single-leg") && name.contains("bridge")) return ["One leg in air", "Lift hips with other leg", "Squeeze glute hard", "Switch legs"];
+    if (name.contains("bridge")) return ["Lie on back", "Lift hips high", "Squeeze glutes at top", "Not lower back"];
+    if (name.contains("deadlift")) return ["Stand on one leg", "Hinge at hips", "Back flat, leg back", "Return up"];
+    if (name.contains("nordic")) return ["Knees down, heels held", "Lower torso slowly", "Use hands to push back", "Hamstring focus"];
+    
+    return ["Maintain good form", "Breathe steadily", "Stay consistent"];
+  }
+
+  static bool hasEvaluator(String name) {
+    // We have evaluators for almost everything now
+    return true; 
+  }
+}
+
+class SquatEvaluator extends ExerciseEvaluator {
+  @override
+  EvaluationResult evaluate(Pose pose) {
+    if (checkCooldown()) {
+      return EvaluationResult(feedback: "Good rep! Breathe...", currentMetric: 180);
+    }
+
+    final hip = PoseUtils.getBestLandmark(pose, PoseLandmarkType.leftHip, PoseLandmarkType.rightHip);
+    final knee = PoseUtils.getBestLandmark(pose, PoseLandmarkType.leftKnee, PoseLandmarkType.rightKnee);
+    final ankle = PoseUtils.getBestLandmark(pose, PoseLandmarkType.leftAnkle, PoseLandmarkType.rightAnkle);
+    final shoulder = PoseUtils.getBestLandmark(pose, PoseLandmarkType.leftShoulder, PoseLandmarkType.rightShoulder);
+
+    // 1. Vis Check (Highly Relaxed for variety of conditions)
+    if (hip.likelihood < 0.10 || knee.likelihood < 0.10) {
+      return EvaluationResult(feedback: "Show legs");
+    }
+
+    // REMOVED STRICT POSTURE CHECK
+    // if (!PoseUtils.isUpright(pose)) ...
+
+    // 3. Metrics
+    double kneeAngle = PoseUtils.getSmoothedAngle("squat_knee", hip, knee, ankle);
+    double hipAngle = PoseUtils.getSmoothedAngle("squat_hip", shoulder, hip, knee);
+    
+    // Relaxed Depth: hit 135 degrees    // Relaxed Lunge: 130 degrees is enough
+    bool depthReached = kneeAngle < 130; 
+    bool torsoUpright = hipAngle > 100;
+
+    ExerciseState potentialNextState = state;
+    String potentialFeedback = "";
+    bool justCompleted = false;
+
+    // 4. State Machine
+    if (kneeAngle > 145) { // Standing
+      if (state == ExerciseState.bottom || state == ExerciseState.eccentric) {
+         // Count it if we hit the actual bottom OR the relaxed depth
+         if (depthReached || state == ExerciseState.bottom) { 
+             repCount++;
+             justCompleted = true;
+             triggerCooldown();
+             potentialFeedback = "Great Squat!";
+        } else {
+             potentialFeedback = "Go deeper";
+        }
+        potentialNextState = ExerciseState.neutral;
+      } else {
+        potentialNextState = ExerciseState.neutral;
+      }
+    } else if (kneeAngle < 135) { // Bottom
+      potentialNextState = ExerciseState.bottom;
+      potentialFeedback = "Drive up!";
+      if (!torsoUpright) potentialFeedback = "Chest up!";
+    } else { 
+      // Transition
+      if (state == ExerciseState.neutral) {
+         potentialNextState = ExerciseState.eccentric;
+      } else if (state == ExerciseState.bottom) {
+         potentialNextState = ExerciseState.concentric;
+      }
+    }
+
+    // Stability
+    if (potentialNextState == state) {
+      frameStabilityCounter++;
+    } else {
+      frameStabilityCounter = 0;
+    }
+
+    if (frameStabilityCounter >= requiredFrames) {
+      state = potentialNextState;
+      frameStabilityCounter = 0;
+    }
+
+    return EvaluationResult(
+      feedback: potentialFeedback,
+      isRepCompleted: justCompleted,
+      currentMetric: kneeAngle,
+    );
+  }
+}
+
+class PushupEvaluator extends ExerciseEvaluator {
+  @override
+  EvaluationResult evaluate(Pose pose) {
+     if (checkCooldown()) {
+      return EvaluationResult(feedback: "Strong! Resetting...", currentMetric: 180);
+    }
+
+    final shoulder = PoseUtils.getBestLandmark(pose, PoseLandmarkType.leftShoulder, PoseLandmarkType.rightShoulder);
+    final elbow = PoseUtils.getBestLandmark(pose, PoseLandmarkType.leftElbow, PoseLandmarkType.rightElbow);
+    final wrist = PoseUtils.getBestLandmark(pose, PoseLandmarkType.leftWrist, PoseLandmarkType.rightWrist);
+    final hip = PoseUtils.getBestLandmark(pose, PoseLandmarkType.leftHip, PoseLandmarkType.rightHip);
+    final ankle = PoseUtils.getBestLandmark(pose, PoseLandmarkType.leftAnkle, PoseLandmarkType.rightAnkle);
+
+    // 1. Visibility (Relaxed)
+    if (shoulder.likelihood < 0.10 || elbow.likelihood < 0.10) {
+      return EvaluationResult(feedback: "Show arms");
+    }
+
+    // REMOVED STRICT POSTURE CHECK
+    // if (!PoseUtils.isProne(pose)) ...
+
+    // 3. Metrics
+    double elbowAngle = PoseUtils.getSmoothedAngle("pushup_elbow", shoulder, elbow, wrist);
+    double plankAngle = PoseUtils.getSmoothedAngle("pushup_plank", shoulder, hip, ankle);
+    
+    bool straightBody = (ankle.likelihood < 0.5) || (plankAngle > 130);
+
+    ExerciseState potentialNextState = state;
+    String potentialFeedback = "";
+    bool justCompleted = false;
+
+    // 4. State Machine (Relaxed)
+    if (elbowAngle > 145) { // Lockout
+      if (state == ExerciseState.bottom || state == ExerciseState.eccentric) {
+         repCount++;
+         justCompleted = true;
+         triggerCooldown();
+         potentialFeedback = "Nice Push-up!";
+         potentialNextState = ExerciseState.neutral;
+      } else {
+         potentialNextState = ExerciseState.neutral;
+      }
+    } else if (elbowAngle < 120) { // Bottom
+       potentialNextState = ExerciseState.bottom;
+       potentialFeedback = "Push!";
+    } else { 
+       if (state == ExerciseState.neutral) {
+          potentialNextState = ExerciseState.eccentric;
+          if (!straightBody) potentialFeedback = "Keep straight";
+       }
+    }
+
+    // Stability
+    if (potentialNextState == state) {
+      frameStabilityCounter++;
+    } else {
+      frameStabilityCounter = 0;
+    }
+
+    if (frameStabilityCounter >= requiredFrames) {
+      state = potentialNextState;
+      frameStabilityCounter = 0;
+    }
+
+    return EvaluationResult(
+      feedback: potentialFeedback,
+      isRepCompleted: justCompleted,
+      currentMetric: elbowAngle,
+    );
+  }
+}
+
+class LungeEvaluator extends ExerciseEvaluator {
+  @override
+  EvaluationResult evaluate(Pose pose) {
+    if (checkCooldown()) {
+      return EvaluationResult(feedback: "Good step!", currentMetric: 180);
+    }
+
+    final hip = PoseUtils.getBestLandmark(pose, PoseLandmarkType.leftHip, PoseLandmarkType.rightHip);
+    final knee = PoseUtils.getBestLandmark(pose, PoseLandmarkType.leftKnee, PoseLandmarkType.rightKnee);
+    final ankle = PoseUtils.getBestLandmark(pose, PoseLandmarkType.leftAnkle, PoseLandmarkType.rightAnkle);
+
+    if (hip.likelihood < 0.10 || knee.likelihood < 0.10) {
+      return EvaluationResult(feedback: "Show legs");
+    }
+
+    // REMOVED STRICT POSTURE CHECK
+    // if (!PoseUtils.isUpright(pose)) ...
+
+    double kneeAngle = PoseUtils.getSmoothedAngle("lunge_knee", hip, knee, ankle);
+    
+    ExerciseState potentialNextState = state;
+    String potentialFeedback = "";
+    bool justCompleted = false;
+
+    if (kneeAngle > 145) { // Standing
+      if (state == ExerciseState.bottom || state == ExerciseState.eccentric) {
+        repCount++;
+        justCompleted = true;
+        triggerCooldown();
+        potentialFeedback = "Lunge completed!";
+        potentialNextState = ExerciseState.neutral;
+      } else {
+        potentialNextState = ExerciseState.neutral;
+      }
+    } else if (kneeAngle < 130) { // Relaxed Lunge Bottom
+       potentialNextState = ExerciseState.bottom;
+       potentialFeedback = "Drive up!";
+    } else {
+       potentialNextState = ExerciseState.eccentric;
+    }
+
+    if (potentialNextState == state) {
+      frameStabilityCounter++;
+    } else {
+      frameStabilityCounter = 0;
+    }
+
+    if (frameStabilityCounter >= requiredFrames) {
+      state = potentialNextState;
+      frameStabilityCounter = 0;
+    }
+
+    return EvaluationResult(
+      feedback: potentialFeedback,
+      isRepCompleted: justCompleted,
+      currentMetric: kneeAngle,
+    );
+  }
+}
+
+// ... (previous classes)
+
+class JumpingJackEvaluator extends ExerciseEvaluator {
+  @override
+  EvaluationResult evaluate(Pose pose) {
+    if (checkCooldown()) {
+      return EvaluationResult(feedback: "Keep moving!", currentMetric: 180);
+    }
+
+    final leftAnkle = PoseUtils.getBestLandmark(pose, PoseLandmarkType.leftAnkle, PoseLandmarkType.leftAnkle);
+    final rightAnkle = PoseUtils.getBestLandmark(pose, PoseLandmarkType.rightAnkle, PoseLandmarkType.rightAnkle);
+    final leftWrist = PoseUtils.getBestLandmark(pose, PoseLandmarkType.leftWrist, PoseLandmarkType.leftWrist);
+    final rightWrist = PoseUtils.getBestLandmark(pose, PoseLandmarkType.rightWrist, PoseLandmarkType.rightWrist);
+    final shoulder = PoseUtils.getBestLandmark(pose, PoseLandmarkType.leftShoulder, PoseLandmarkType.rightShoulder);
+
+    // 1. Visibility Check (Relaxed to 0.15 for fast movement)
+    if (leftAnkle.likelihood < 0.15 || rightAnkle.likelihood < 0.15) {
+      return EvaluationResult(feedback: "Show full body");
+    }
+
+    // 2. Metrics
+    double ankleDist = (leftAnkle.x - rightAnkle.x).abs(); 
+
+    // Visualize relative to shoulder width
+    final leftShoulder = PoseUtils.getBestLandmark(pose, PoseLandmarkType.leftShoulder, PoseLandmarkType.leftShoulder);
+    final rightShoulder = PoseUtils.getBestLandmark(pose, PoseLandmarkType.rightShoulder, PoseLandmarkType.rightShoulder);
+    double shoulderWidth = (leftShoulder.x - rightShoulder.x).abs();
+    if (shoulderWidth < 5) shoulderWidth = 50; // Safety clamp
+
+    // Relaxed Thresholds:
+    // Wide: Feet just wider than shoulders (was 1.5x)
+    bool feetWide = ankleDist > (shoulderWidth * 1.2); 
+    
+    // Narrow: Feet under shoulders
+    bool feetNarrow = ankleDist < (shoulderWidth * 1.0);
+
+    // Hands: Relaxed "Up" check (Just needs to be above shoulders)
+    bool handsUp = leftWrist.y < shoulder.y && rightWrist.y < shoulder.y;
+    bool handsDown = leftWrist.y > shoulder.y && rightWrist.y > shoulder.y;
+
+    ExerciseState potentialNextState = state;
+    String potentialFeedback = "";
+    bool justCompleted = false;
+
+    // State Machine
+    // Star Position (Wide OR Hands Up - Allow either to trigger to be forgiving)
+    if (handsUp || feetWide) {
+      if (state == ExerciseState.neutral || state == ExerciseState.eccentric) {
+         potentialNextState = ExerciseState.concentric; // "Out"
+         potentialFeedback = "Hands up!";
+      }
+    } 
+    // Pencil Position (Narrow AND Hands Down)
+    else if (handsDown && feetNarrow) {
+      if (state == ExerciseState.concentric) {
+         repCount++;
+         justCompleted = true;
+         triggerCooldown(newFrames: 5); // Fast cooldown for jacks
+         potentialFeedback = "Good Jack!";
+         potentialNextState = ExerciseState.neutral;
+      } else {
+         potentialNextState = ExerciseState.neutral;
+      }
+    }
+
+    // Stability - Instant for Cardio
+    frameStabilityCounter++;
+    if (frameStabilityCounter >= 1) { 
+       state = potentialNextState;
+       frameStabilityCounter = 0;
+    }
+
+    // Metric for display: 0 = Pencil, 180 = Star (Proxy)
+    double metric = handsUp ? 180 : 0;
+
+    return EvaluationResult(
+      feedback: potentialFeedback,
+      isRepCompleted: justCompleted,
+      currentMetric: metric,
+    );
+  }
+}
+
+class PlankEvaluator extends ExerciseEvaluator {
+  int _secondsHeld = 0;
+  DateTime? _lastTick;
+
+  @override
+  void reset() {
+    super.reset();
+    _secondsHeld = 0;
+    _lastTick = null;
+  }
+
+  @override
+  EvaluationResult evaluate(Pose pose) {
+     final shoulder = PoseUtils.getBestLandmark(pose, PoseLandmarkType.leftShoulder, PoseLandmarkType.rightShoulder);
+     final hip = PoseUtils.getBestLandmark(pose, PoseLandmarkType.leftHip, PoseLandmarkType.rightHip);
+     final ankle = PoseUtils.getBestLandmark(pose, PoseLandmarkType.leftAnkle, PoseLandmarkType.rightAnkle);
+
+     if (shoulder.likelihood < 0.10 || hip.likelihood < 0.10) {
+       return EvaluationResult(feedback: "Show body");
+     }
+
+     double bodyLineAngle = PoseUtils.getSmoothedAngle("plank_line", shoulder, hip, ankle);
+     bool isStraight = bodyLineAngle > 160;
+
+     String feedback = "Hold tight!";
+     if (!isStraight) {
+       // Check if hips are too high or low
+       // Angle < 160 usually means hips sagging or piked.
+       feedback = "Straighten back!";
+     } else {
+       // Count time
+       final now = DateTime.now();
+       if (_lastTick == null || now.difference(_lastTick!).inSeconds >= 1) {
+         _secondsHeld++; // Although we use timer in UI, this validates "Good Form" time.
+         _lastTick = now;
+         repCount = _secondsHeld; // Hijack repCount for seconds in this case
+       }
+     }
+
+     return EvaluationResult(
+       feedback: feedback,
+       isRepCompleted: false, // Planks don't have reps, they have duration
+       currentMetric: bodyLineAngle,
+     );
+  }
+}
+
+class HighKneesEvaluator extends ExerciseEvaluator {
+  bool _leftUp = false;
+  bool _rightUp = false;
+
+  @override
+  EvaluationResult evaluate(Pose pose) {
+    if (checkCooldown()) {
+      return EvaluationResult(feedback: "Keep going!", currentMetric: 180);
+    }
+
+    final leftHip = PoseUtils.getBestLandmark(pose, PoseLandmarkType.leftHip, PoseLandmarkType.leftHip);
+    final rightHip = PoseUtils.getBestLandmark(pose, PoseLandmarkType.rightHip, PoseLandmarkType.rightHip);
+    final leftKnee = PoseUtils.getBestLandmark(pose, PoseLandmarkType.leftKnee, PoseLandmarkType.leftKnee);
+    final rightKnee = PoseUtils.getBestLandmark(pose, PoseLandmarkType.rightKnee, PoseLandmarkType.rightKnee);
+
+    if (leftHip.likelihood < 0.10 || leftKnee.likelihood < 0.10) {
+      return EvaluationResult(feedback: "Show legs");
+    }
+
+    double hipLevel = (leftHip.y + rightHip.y) / 2;
+    // Knee Up means y is LOWER (screen coordinates)
+    // Threshold: Knee roughly level with hip or higher
+    // Forgiving detection: knee just needs to move up a bit
+    bool leftIsUp = leftKnee.y < (hipLevel + 120); 
+    bool rightIsUp = rightKnee.y < (hipLevel + 120);
+    
+    String feedback = "Drive knees up!";
+    bool justCompleted = false;
+
+    if (leftIsUp && !_leftUp) {
+      _leftUp = true;
+      feedback = "Good Left!";
+    } else if (!leftIsUp) {
+      _leftUp = false;
+    }
+
+    if (rightIsUp && !_rightUp) {
+      _rightUp = true;
+      feedback = "Good Right!";
+      repCount++; 
+      justCompleted = true;
+      triggerCooldown(newFrames: 5);
+    } else if (!rightIsUp) {
+      _rightUp = false;
+    }
+
+    return EvaluationResult(
+      feedback: feedback,
+      isRepCompleted: justCompleted,
+      currentMetric: leftIsUp ? 100 : 0,
+    );
+  }
+}
+
+class GluteBridgeEvaluator extends ExerciseEvaluator {
+  @override
+  EvaluationResult evaluate(Pose pose) {
+    if (checkCooldown()) return EvaluationResult(feedback: "Lowering...");
+
+    final shoulder = PoseUtils.getBestLandmark(pose, PoseLandmarkType.leftShoulder, PoseLandmarkType.rightShoulder);
+    final hip = PoseUtils.getBestLandmark(pose, PoseLandmarkType.leftHip, PoseLandmarkType.rightHip);
+    final knee = PoseUtils.getBestLandmark(pose, PoseLandmarkType.leftKnee, PoseLandmarkType.rightKnee);
+
+    if (shoulder.likelihood < 0.10 || hip.likelihood < 0.10) {
+       return EvaluationResult(feedback: "Show body");
+    }
+
+    double hipAngle = PoseUtils.getSmoothedAngle("bridge_hip", shoulder, hip, knee);
+
+    String feedback = "Lift hips!";
+    bool justCompleted = false;
+
+    if (state == ExerciseState.neutral) {
+        if (hipAngle > 165) {
+           state = ExerciseState.eccentric; // Top held
+           feedback = "Squeeze glutes!";
+        }
+    } else if (state == ExerciseState.eccentric) {
+       feedback = "Hold top position";
+       if (hipAngle < 155) {
+         state = ExerciseState.neutral;
+         repCount++;
+         justCompleted = true;
+         triggerCooldown();
+         feedback = "Good Bridge!";
+       }
+    }
+
+    return EvaluationResult(
+      feedback: feedback,
+      isRepCompleted: justCompleted,
+      currentMetric: hipAngle,
+    );
+  }
+}
+
+class CrunchesEvaluator extends ExerciseEvaluator {
+  @override
+  EvaluationResult evaluate(Pose pose) {
+    if (checkCooldown()) return EvaluationResult(feedback: "Relax back down");
+    
+    final shoulder = PoseUtils.getBestLandmark(pose, PoseLandmarkType.leftShoulder, PoseLandmarkType.rightShoulder);
+    final hip = PoseUtils.getBestLandmark(pose, PoseLandmarkType.leftHip, PoseLandmarkType.rightHip);
+    final knee = PoseUtils.getBestLandmark(pose, PoseLandmarkType.leftKnee, PoseLandmarkType.rightKnee);
+
+    if (shoulder.likelihood < 0.10 || hip.likelihood < 0.10) {
+        return EvaluationResult(feedback: "Position body");
+    }
+
+    double coreAngle = PoseUtils.getSmoothedAngle("crunch_core", shoulder, hip, knee);
+    
+    bool justCompleted = false;
+    String feedback = "Crunch up!";
+
+    if (state == ExerciseState.neutral) {
+        if (coreAngle < 150) { // Crunched
+          state = ExerciseState.concentric;
+          feedback = "Squeeze abs!";
+        }
+    } else if (state == ExerciseState.concentric) {
+        if (coreAngle > 165) { // Relaxed
+          state = ExerciseState.neutral;
+          repCount++;
+          justCompleted = true;
+          triggerCooldown();
+          feedback = "Good Crunch!";
+        } else {
+          feedback = "Hold...";
+        }
+    }
+
+    return EvaluationResult(feedback: feedback, isRepCompleted: justCompleted, currentMetric: coreAngle);
+  }
+}
+
+class LegRaiseEvaluator extends ExerciseEvaluator {
+  @override
+  EvaluationResult evaluate(Pose pose) {
+    if (checkCooldown()) return EvaluationResult(feedback: "Control down...");
+
+    final hip = PoseUtils.getBestLandmark(pose, PoseLandmarkType.leftHip, PoseLandmarkType.rightHip);
+    final knee = PoseUtils.getBestLandmark(pose, PoseLandmarkType.leftKnee, PoseLandmarkType.rightKnee);
+    final ankle = PoseUtils.getBestLandmark(pose, PoseLandmarkType.leftAnkle, PoseLandmarkType.rightAnkle);
+
+    if (hip.likelihood < 0.1 || ankle.likelihood < 0.1) return EvaluationResult(feedback: "Show legs");
+
+    // Lying down, legs straight. Angle of Hip-Knee line relative to horizontal?
+    // Simplified: Angle at Hip (Shoulder-Hip-Knee).
+    // Lying flat: ~180. Legs up: ~90.
+    final shoulder = PoseUtils.getBestLandmark(pose, PoseLandmarkType.leftShoulder, PoseLandmarkType.rightShoulder);
+    double hipAngle = PoseUtils.getSmoothedAngle("leg_raise_hip", shoulder, hip, knee);
+
+    bool legsUp = hipAngle < 110; 
+    bool legsDown = hipAngle > 160;
+
+    String feedback = "Keep legs straight";
+    bool repDone = false;
+
+    if (state == ExerciseState.neutral && legsDown) {
+      state = ExerciseState.initiating;
+      feedback = "Lift legs!";
+    } else if (state == ExerciseState.initiating && legsUp) {
+      state = ExerciseState.eccentric; // Top of movement
+      feedback = "Lower slowly";
+    } else if (state == ExerciseState.eccentric && legsDown) {
+      repCount++;
+      repDone = true;
+      state = ExerciseState.neutral;
+      feedback = "Good Lift!";
+      triggerCooldown();
+    }
+
+    return EvaluationResult(feedback: feedback, isRepCompleted: repDone, currentMetric: hipAngle);
+  }
+}
+
+class MountainClimberEvaluator extends ExerciseEvaluator {
+  @override
+  EvaluationResult evaluate(Pose pose) {
+    // High frequency, low cooldown
+    if (checkCooldown()) return EvaluationResult(feedback: "Keep going!");
+
+    if (!PoseUtils.isProne(pose)) return EvaluationResult(feedback: "Plank position");
+
+    final leftHip = PoseUtils.getBestLandmark(pose, PoseLandmarkType.leftHip, PoseLandmarkType.leftHip);
+    final leftKnee = PoseUtils.getBestLandmark(pose, PoseLandmarkType.leftKnee, PoseLandmarkType.leftKnee);
+    final rightHip = PoseUtils.getBestLandmark(pose, PoseLandmarkType.rightHip, PoseLandmarkType.rightHip);
+    final rightKnee = PoseUtils.getBestLandmark(pose, PoseLandmarkType.rightKnee, PoseLandmarkType.rightKnee);
+
+    // Check if one knee is close to chest (distance between knee and hip is small in X? or Angle?)
+    // Prone: Hip is roughly same Y as Shoulder. Knee moving towards shoulder reduces Hip-Shoulder-Knee angle?
+    // Let's use simple distance check or hip angle.
+    // Hip Flexion: Thigh moves towards chest.
+    
+    // We can reuse HighKnees logic but enforced in Prone.
+    // Or just check if knee.x is close to shoulder.x (assuming side view).
+    
+    // Let's rely on relative movement.
+    // If Left Knee is forward (close to Left Shoulder) OR Right Knee is forward.
+    
+    // Just count reps based on ANY knee drive.
+    final leftShoulder = PoseUtils.getBestLandmark(pose, PoseLandmarkType.leftShoulder, PoseLandmarkType.leftShoulder);
+    final rightShoulder = PoseUtils.getBestLandmark(pose, PoseLandmarkType.rightShoulder, PoseLandmarkType.rightShoulder);
+    
+    // Distance check (Screen coordinates)
+    double leftDist = (leftKnee.x - leftShoulder.x).abs() + (leftKnee.y - leftShoulder.y).abs();
+    double rightDist = (rightKnee.x - rightShoulder.x).abs() + (rightKnee.y - rightShoulder.y).abs();
+    
+    // Let's use hip angle again.
+    double leftHipAngle = PoseUtils.calculateAngle(leftShoulder, leftHip, leftKnee);
+    double rightHipAngle = PoseUtils.calculateAngle(rightShoulder, rightHip, rightKnee);
+    
+    bool leftDrive = leftHipAngle < 120; // Knee pulled in
+    bool rightDrive = rightHipAngle < 120;
+    
+    String feedback = "Drive knees!";
+    bool repDone = false;
+
+    if (state == ExerciseState.neutral) {
+       if (leftDrive || rightDrive) {
+         state = ExerciseState.concentric;
+         feedback = "Fast!";
+       }
+    } else if (state == ExerciseState.concentric) {
+       // Wait for reset (both legs extended?) or switch?
+       // For mountain climbers, we count every step? or every pair?
+       // Let's count every drive.
+       if (!leftDrive && !rightDrive) {
+         repCount++;
+         repDone = true;
+         state = ExerciseState.neutral;
+         feedback = "Go! Go!";
+         triggerCooldown(newFrames: 5); // Fast cooldown
+       }
+    }
+
+    return EvaluationResult(feedback: feedback, isRepCompleted: repDone, currentMetric: 180);
+  }
+}
+
+class BicycleCrunchEvaluator extends ExerciseEvaluator {
+  @override
+  EvaluationResult evaluate(Pose pose) {
+    if (checkCooldown()) return EvaluationResult(feedback: "Switch!");
+
+    // Check for knee-to-elbow proximity??? Hard in 2D without depth.
+    // Just check for alternate Knee Up + Torso Rotation?
+    // Simplify: Just check for Knee Up while Lying Down (similar to Dead Bug / Leg Raise but alternating).
+    
+    final hip = PoseUtils.getBestLandmark(pose, PoseLandmarkType.leftHip, PoseLandmarkType.rightHip);
+    if (hip.likelihood < 0.1) return EvaluationResult(feedback: "Show body");
+    
+    final leftKnee = PoseUtils.getBestLandmark(pose, PoseLandmarkType.leftKnee, PoseLandmarkType.leftKnee);
+    final rightKnee = PoseUtils.getBestLandmark(pose, PoseLandmarkType.rightKnee, PoseLandmarkType.rightKnee);
+    final shoulder = PoseUtils.getBestLandmark(pose, PoseLandmarkType.leftShoulder, PoseLandmarkType.rightShoulder);
+    
+    double leftHipAngle = PoseUtils.calculateAngle(shoulder, hip, leftKnee);
+    double rightHipAngle = PoseUtils.calculateAngle(shoulder, hip, rightKnee);
+
+    bool leftIn = leftHipAngle < 110;
+    bool rightIn = rightHipAngle < 110;
+    
+    bool repDone = false;
+    String feedback = "Twist and crunch";
+
+    // State machine for alternating
+    if (state == ExerciseState.neutral) {
+      if (leftIn || rightIn) {
+        state = ExerciseState.concentric;
+        feedback = "Squeeze!";
+      }
+    } else if (state == ExerciseState.concentric) {
+       // Reset when leg extends
+       if (!leftIn && !rightIn) {
+          repCount++;
+          repDone = true;
+          state = ExerciseState.neutral;
+          feedback = "Switch!";
+          triggerCooldown(newFrames: 8);
+       }
+    }
+
+    return EvaluationResult(feedback: feedback, isRepCompleted: repDone, currentMetric: 180);
+  }
+}
+

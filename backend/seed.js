@@ -1,0 +1,96 @@
+const mongoose = require('mongoose');
+const dotenv = require('dotenv');
+const Exercise = require('./models/Exercise');
+const User = require('./models/User');
+
+dotenv.config();
+
+const adminUser = {
+    username: "A1",
+    email: "gv@gmail.com",
+    password: "pass123",
+    age: 25,
+    gender: "Male",
+    heightCm: 180,
+    weightKg: 75,
+    totalScore: 1000,
+    fitnessProfile: {
+        q2: "Male",
+        q6: "No",
+        q15: "Muscle Gain",
+        q18: "High",
+        q20: "5+ days/week",
+        q22: "Yes",
+        q28: "5",
+        q29: "45 min",
+        q31: "Home",
+        q32: ["None"]
+    }
+};
+
+const exercises = [
+    // --- WEIGHT LOSS (10) ---
+    { title: "Burpees", subtitle: "Weight Loss • High", goals: ["Weight Loss"], difficulty: "Advanced", steps: ["Stand tall, then drop quickly into a squat with hands on the floor.", "Kick your feet back explosively to land in a plank position.", "Immediately jump your feet back towards your hands.", "Explode upwards into a high jump, clapping hands overhead."], gif_url: "assets/exercises/burpees.gif" },
+    { title: "Jumping Jacks", subtitle: "Weight Loss • Med", goals: ["Weight Loss"], difficulty: "Intermediate", steps: ["Stand upright with your legs together and arms at your sides.", "Jump your feet out wide while simultaneously raising your arms overhead.", "Jump your feet back together and lower your arms to the starting position.", "Maintain a steady, rhythmic pace to keep your heart rate up."], gif_url: "assets/exercises/jumping_jacks.gif" },
+    { title: "High Knees", subtitle: "Weight Loss • Med", goals: ["Weight Loss"], difficulty: "Intermediate", steps: ["Run in place, driving your knees up towards your chest as high as possible.", "Pump your arms vigorously in sync with your legs for momentum.", "Keep your chest up, core engaged, and land softly on the balls of your feet.", "Focus on speed and maintaining a rapid cadence."], gif_url: "assets/exercises/high_knees.gif" },
+    { title: "Mountain Climbers", subtitle: "Weight Loss • High", goals: ["Weight Loss"], difficulty: "Advanced", steps: ["Start in a high plank position with hands directly under your shoulders.", "Drive one knee towards your chest while keeping the other leg extended.", "Quickly switch legs, jumping the other knee in while extending the first back.", "Keep your hips low and your back flat throughout the movement."], gif_url: "assets/exercises/mountain_climbers.gif" },
+    { title: "Jump Squats", subtitle: "Weight Loss • High", goals: ["Weight Loss"], difficulty: "Advanced", steps: ["Stand with feet shoulder-width apart and lower into a squat.", "Explode upwards, jumping vertically as high as you can.", "Land softly with bent knees to absorb the impact immediately.", "Transition smoothly into the next squat without pausing."], gif_url: "assets/exercises/jump_squats.gif" },
+    { title: "Skaters", subtitle: "Weight Loss • Med", goals: ["Weight Loss"], difficulty: "Intermediate", steps: ["Hop laterally to the right, landing on your right foot.", "Sweep your left leg behind you and swing your arms across your body.", "Immediately hop laterally to the left, switching legs and arms.", "Keep your chest up and maintain a wide, rhythmic motion."], gif_url: "assets/exercises/skaters.gif" },
+    { title: "Butt Kicks", subtitle: "Weight Loss • Low", goals: ["Weight Loss"], difficulty: "Beginner", steps: ["Jog in place, focusing on kicking your heels up towards your glutes.", "Keep your thighs vertical and knees pointing down.", "Pump your arms to maintain balance and rhythm.", "Breathe steadily and try to increase your speed."], gif_url: "assets/exercises/butt_kicks.gif" },
+    { title: "Tuck Jumps", subtitle: "Weight Loss • High", goals: ["Weight Loss"], difficulty: "Advanced", steps: ["Stand with feet hip-width apart and knees slightly bent.", "Jump up explosively, pulling your knees high towards your chest.", "Tap your knees with your hands at the peak of the jump.", "Land accurately and softly with bent knees to absorb shock."], gif_url: "assets/exercises/tuck_jumps.gif" },
+    { title: "Plank Jacks", subtitle: "Weight Loss • High", goals: ["Weight Loss"], difficulty: "Advanced", steps: ["Begin in a solid plank position with your core tight.", "Jump your feet out wide like a horizontal jumping jack.", "Jump your feet back together quickly.", "Keep your hips stable and do not let your lower back sag."], gif_url: "assets/exercises/plank_jacks.gif" },
+    { title: "Sprint in Place", subtitle: "Weight Loss • Med", goals: ["Weight Loss"], difficulty: "Intermediate", steps: ["Stand tall and lean slightly forward.", "Sprint with maximum effort, lifting your feet quickly off the ground.", "Swing your arms aggressively to generate power.", "Focus on breathing deeply and maintaining intensity."], gif_url: "assets/exercises/sprint.gif" },
+
+    // --- WEIGHT GAIN / MUSCLE (Combined for seed) ---
+    { title: "Push-ups", subtitle: "Chest • Med", goals: ["Muscle Gain", "Weight Gain"], difficulty: "Intermediate", steps: ["Start in a high plank with hands slightly wider than shoulders.", "Lower your body until your chest nearly touches the floor.", "Keep your elbows at a 45-degree angle to your body.", "Push back up explosively, maintaining a rigid, straight body line."], gif_url: "assets/exercises/push-ups.gif" },
+    { title: "Squats", subtitle: "Legs • Med", goals: ["Muscle Gain", "Weight Gain"], difficulty: "Intermediate", steps: ["Stand with feet shoulder-width apart, toes pointing slightly out.", "Inhale and push your hips back as if sitting in a chair.", "Lower until your thighs are parallel to the floor.", "Exhale and drive through your heels to return to standing."], gif_url: "assets/exercises/squats.gif" },
+    { title: "Lunges", subtitle: "Legs • Med", goals: ["Muscle Gain", "Weight Gain"], difficulty: "Intermediate", steps: ["Step forward with one leg, keeping your torso upright.", "Lower your hips until both knees are bent at 90-degree angles.", "Ensure your front knee does not extend past your toes.", "Push off the front foot to return to the starting position."], gif_url: "assets/exercises/lunges.gif" },
+    { title: "Glute Bridges", subtitle: "Glutes • Easy", goals: ["Muscle Gain"], difficulty: "Beginner", steps: ["Lie on your back with knees bent and feet flat on the floor.", "Drive through your heels to lift your hips directly towards the ceiling.", "Squeeze your glutes hard at the top position.", "Lower your hips slowly without letting them touch the floor."], gif_url: "assets/exercises/glute_bridges.gif" },
+    { title: "Calf Raises", subtitle: "Calves • Easy", goals: ["Muscle Gain"], difficulty: "Beginner", steps: ["Stand tall with feet hip-width apart.", "Rise up onto the balls of your feet, lifting your heels high.", "Hold the peak contraction for a second.", "Lower your heels slowly back to the ground."], gif_url: "assets/exercises/calf_raises.gif" },
+    { title: "Dips", subtitle: "Triceps • Med", goals: ["Muscle Gain"], difficulty: "Intermediate", steps: ["Place palms on a bench or chair behind you, fingers facing forward.", "Lower your body by bending your elbows until they reach 90 degrees.", "Keep your back close to the bench throughout the movement.", "Push back up to straight arms, focusing on the triceps."], gif_url: "assets/exercises/dips.gif" },
+    { title: "Pull-ups", subtitle: "Back • Hard", goals: ["Muscle Gain"], difficulty: "Advanced", steps: ["Hang from a bar with hands slightly wider than shoulder-width.", "Pull your chest up towards the bar by driving your elbows down.", "Squeeze your shoulder blades together at the top.", "Lower yourself slowly and with control to a full hang."], gif_url: "assets/exercises/pull_ups.gif" },
+
+    // --- NORMAL EXERCISE (7) ---
+    { title: "Plank", subtitle: "Core • Med", goals: ["Fitness"], difficulty: "Intermediate", steps: ["Rest on your forearms with elbows directly under your shoulders.", "Extend your legs back, creating a straight line from head to heels.", "Tighten your abs and glutes to prevent your hips from sagging.", "Hold this position while breathing steadily."], gif_url: "assets/exercises/plank.gif" },
+    { title: "Crunches", subtitle: "Abs • Easy", goals: ["Fitness"], difficulty: "Beginner", steps: ["Lie on your back with knees bent and feet flat.", "Place hands behind your head without pulling on your neck.", "Lift your upper back off the floor, squeezing your abs.", "Lower slowly back down, keeping tension on the core."], gif_url: "assets/exercises/crunches.gif" },
+    { title: "Bicycle Crunches", subtitle: "Abs • Med", goals: ["Fitness"], difficulty: "Intermediate", steps: ["Lie back with hands behind head and legs lifted.", "Bring right elbow to left knee while extending the right leg.", "Switch sides, bringing left elbow to right knee.", "Continue alternating in a smooth, pedaling motion."], gif_url: "assets/exercises/bicycle_crunches.gif" },
+    { title: "Leg Raises", subtitle: "Abs • Med", goals: ["Fitness"], difficulty: "Intermediate", steps: ["Lie flat on your back with hands under your glutes for support.", "Keep legs straight and lift them until they are vertical.", "Lower your legs slowly towards the floor without arching your back.", "Stop just inches from the ground and repeat."], gif_url: "assets/exercises/leg_raises.gif" },
+    { title: "Side Plank", subtitle: "Core • Med", goals: ["Fitness"], difficulty: "Intermediate", steps: ["Lie on one side with your elbow directly under your shoulder.", "Lift your hips until your body forms a straight line.", "Engage your core and obliques to maintain stability.", "Hold the position without letting your hips drop."], gif_url: "assets/exercises/side_plank.gif" },
+    { title: "Superman Holds", subtitle: "Back • Med", goals: ["Fitness"], difficulty: "Intermediate", steps: ["Lie face down with arms extended in front of you.", "Simultaneously lift your arms, chest, and legs off the floor.", "Squeeze your lower back and glutes at the top.", "Hold this 'flying' position for the duration."], gif_url: "assets/exercises/superman.gif" },
+    { title: "Wall Sits", subtitle: "Legs • Med", goals: ["Fitness"], difficulty: "Intermediate", steps: ["Lean your back flat against a wall.", "Slide down until your knees are bent at a 90-degree angle.", "Ensure your thighs are parallel to the floor.", "Hold this seated position while breathing deeply."], gif_url: "assets/exercises/wall_sit.gif" },
+
+    // --- MUSCLE BUILDING (4) ---
+    { title: "Hollow Body Holds", subtitle: "Core • Hard", goals: ["Muscle Gain"], difficulty: "Advanced", steps: ["Lie on your back with arms extended overhead.", "Lift your shoulders and legs slightly off the ground.", "Press your lower back firmly into the floor.", "Hold this banana-shaped position with core tight."], gif_url: "assets/exercises/hollow_body.gif" },
+    { title: "L-Sits", subtitle: "Core • Pro", goals: ["Muscle Gain"], difficulty: "Advanced", steps: ["Sit on the floor with legs extended and hands beside hips.", "Press into the floor to lift your hips and legs off the ground.", "Keep your legs straight, forming an 'L' shape with your body.", "Hold as long as possible with good form."], gif_url: "assets/exercises/l_sits.gif" },
+    { title: "Nordic Curls", subtitle: "Hams • Pro", goals: ["Muscle Gain"], difficulty: "Advanced", steps: ["Start kneeling with ankles secured (under a couch or partner).", "Slowly lower your torso forward, controlling the fall with your hamstrings.", "Catch yourself with your hands if needed at the bottom.", "Push up slightly to assist your hamstrings in pulling you back up."], gif_url: "assets/exercises/nordic_curls.gif" },
+    { title: "V-ups", subtitle: "Abs • Hard", goals: ["Muscle Gain"], difficulty: "Advanced", steps: ["Lie flat with arms extended overhead and legs straight.", "Simultaneously lift your torso and legs to meet in the middle.", "Reach your hands towards your feet, forming a 'V' shape.", "Lower back down with control."], gif_url: "assets/exercises/v-ups.gif" },
+];
+
+const seedDB = async () => {
+    try {
+        await mongoose.connect(process.env.MONGODB_URI);
+        console.log("Connected to DB for seeding...");
+
+        await Exercise.deleteMany({});
+        console.log("Cleared existing exercises.");
+
+        const result = await Exercise.insertMany(exercises);
+        console.log(`Inserted ${result.length} exercises into MongoDB.`);
+
+        // Seed Admin User
+        await User.deleteMany({ $or: [{ email: "gv@gmail.com" }, { username: "A1" }] });
+        await User.create(adminUser);
+        console.log("Admin User 'A1' (gv@gmail.com) seeded.");
+
+        const check = await Exercise.countDocuments();
+        console.log(`VERIFICATION: Total Exercises in DB: ${check}`);
+
+        console.log("Database Seeded Successfully!");
+        process.exit();
+    } catch (err) {
+        console.error("Error seeding DB:", err);
+        process.exit(1);
+    }
+};
+
+seedDB();
