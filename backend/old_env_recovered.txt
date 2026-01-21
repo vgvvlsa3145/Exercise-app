@@ -1,0 +1,2 @@
+PORT=5000
+MONGODB_URI=mongodb+srv://adithya3145_db_user:4rBX6BGSExuKx2VQ@excerciseapp.qh1tguz.mongodb.net/?appName=ExcerciseApp

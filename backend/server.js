@@ -138,7 +138,17 @@ app.post('/api/user/sync', async (req, res) => {
 // Sync Workout Records
 app.post('/api/workout/sync', async (req, res) => {
     try {
-        const workoutData = req.body;
+        const raw = req.body;
+        // Map Frontend (SnakeCase) to Backend (CamelCase)
+        const workoutData = {
+            username: raw.username,
+            exerciseName: raw.exercise_name || raw.exerciseName,
+            reps: raw.reps,
+            accuracy: raw.accuracy,
+            durationSec: raw.duration_sec || raw.durationSec,
+            caloriesBurned: raw.calories_burned || raw.caloriesBurned,
+            timestamp: raw.timestamp
+        };
 
         // Prevent Duplicates: Upsert based on User + Timestamp
         const workout = await Workout.findOneAndUpdate(

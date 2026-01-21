@@ -12,7 +12,7 @@ class SyncService {
   // 127.0.0.1 works only if code runs on same device (e.g. web/desktop or ADB Reverse).
   
   // CURRENT STRATEGY: LAN IP (Wireless Debugging Compatible)
-  static String baseUrl = "http://10.51.251.232:5000/api";
+  static String baseUrl = "https://exercise-app-ppo1.onrender.com/api";
   
   static Future<String> getBaseUrl() async {
     return baseUrl;
